@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"net/http"
-	"time"
 
 	"github.com/PuerkitoBio/goquery"
 )
@@ -31,12 +30,9 @@ func (r *Reader) fetchDoc(ctx context.Context, url string) (*goquery.Document, e
 	return goquery.NewDocumentFromReader(resp.Body)
 }
 
-// pageTimeout is the maximum time to wait for a single page fetch + parse.
-const pageTimeout = 30 * time.Second
-
 // fetchPage fetches a single page with a timeout.
 func (r *Reader) fetchPage(ctx context.Context, url string) (*goquery.Document, error) {
-	ctx, cancel := context.WithTimeout(ctx, pageTimeout)
+	ctx, cancel := context.WithTimeout(ctx, r.timeout)
 	defer cancel()
 
 	return r.fetchDoc(ctx, url)

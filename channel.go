@@ -67,6 +67,7 @@ type Reader struct {
 	username string
 	baseURL  string
 	client   *http.Client
+	timeout  time.Duration
 	since    time.Time
 	until    time.Time
 	useUntil bool
@@ -78,16 +79,15 @@ type Option func(*Reader)
 // New creates a Reader for the given channel username (without @).
 //
 // The username is the part after t.me/ — e.g. "durov", "telegram".
+// defaultTimeout is the timeout for HTTP requests and page fetches.
+const defaultTimeout = 30 * time.Second
+
 func New(username string, opts ...Option) *Reader {
 	r := &Reader{
 		username: username,
 		baseURL:  "https://t.me",
-		client: &http.Client{
-			Timeout: 30 * time.Second,
-			CheckRedirect: func(req *http.Request, via []*http.Request) error {
-				return http.ErrUseLastResponse
-			},
-		},
+		timeout:  defaultTimeout,
+		client: newClient(defaultTimeout),
 	}
 
 	for _, opt := range opts {
@@ -97,10 +97,33 @@ func New(username string, opts ...Option) *Reader {
 	return r
 }
 
+func newClient(timeout time.Duration) *http.Client {
+	return &http.Client{
+		Timeout: timeout,
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			return http.ErrUseLastResponse
+		},
+	}
+}
+
 // WithHTTPClient sets a custom HTTP client.
 func WithHTTPClient(client *http.Client) Option {
 	return func(r *Reader) {
 		r.client = client
+	}
+}
+
+// WithTimeout sets the timeout for HTTP requests and individual page fetches.
+// This affects both the HTTP client timeout and the per-page context deadline.
+//
+// When fetching large numbers of messages (e.g. 100+), consider increasing
+// the timeout to avoid premature cutoffs on slow connections:
+//
+//	reader := pkg.New("durov", pkg.WithTimeout(2*time.Minute))
+func WithTimeout(timeout time.Duration) Option {
+	return func(r *Reader) {
+		r.timeout = timeout
+		r.client = newClient(timeout)
 	}
 }
 
