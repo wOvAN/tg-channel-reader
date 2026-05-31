@@ -37,8 +37,20 @@ type Message struct {
 	// Text is the message body with normalized whitespace.
 	Text string `json:"text"`
 
+	// MediaType describes the message content type.
+	// Possible values: text, photo, video, roundvideo, audio, document,
+	// sticker, location, poll, service, multimedia.
+	// "text" means no media is attached.
+	MediaType string `json:"media_type"`
+
+	// Author is the name of the message author (for channels with multiple posters).
+	Author string `json:"author,omitempty"`
+
 	// Views is the view count as displayed (e.g. "7.62K", "57K").
 	Views string `json:"views"`
+
+	// ViewsCount is the parsed view count as an integer (e.g. "7.62K" -> 7620).
+	ViewsCount int `json:"views_count"`
 
 	// Edited is true if the message was edited after publishing.
 	Edited bool `json:"edited"`
@@ -46,8 +58,17 @@ type Message struct {
 	// Reactions lists emoji reactions with their counts.
 	Reactions []Reaction `json:"reactions,omitempty"`
 
-	// HasMedia is true if the message contains photos, videos, or other media.
-	HasMedia bool `json:"has_media"`
+	// ForwardedFrom is the name of the source if the message was forwarded.
+	ForwardedFrom string `json:"forwarded_from,omitempty"`
+
+	// ForwardedFromURL is the link to the forwarded-from source.
+	ForwardedFromURL string `json:"forwarded_from_url,omitempty"`
+
+	// URLs are inline links found in the message text.
+	URLs []string `json:"urls,omitempty"`
+
+	// LinkPreview contains data from a link preview attached to the message.
+	LinkPreview *LinkPreview `json:"link_preview,omitempty"`
 
 	// Link is the direct URL to the message in Telegram.
 	Link string `json:"link"`
@@ -60,6 +81,48 @@ type Reaction struct {
 
 	// Count is the number of users who reacted with this emoji.
 	Count int `json:"count"`
+}
+
+// LinkPreview represents a link preview attached to a message.
+type LinkPreview struct {
+	// URL is the linked URL.
+	URL string `json:"url"`
+
+	// SiteName is the name of the linked site.
+	SiteName string `json:"site_name,omitempty"`
+
+	// Title is the preview title.
+	Title string `json:"title,omitempty"`
+
+	// Description is the preview description.
+	Description string `json:"description,omitempty"`
+
+	// ImageURL is the preview image URL.
+	ImageURL string `json:"image_url,omitempty"`
+}
+
+// ChannelInfo holds metadata about a Telegram channel.
+type ChannelInfo struct {
+	// Title is the channel display name.
+	Title string `json:"title"`
+
+	// Description is the channel description.
+	Description string `json:"description"`
+
+	// ImageURL is the channel avatar/profile image URL.
+	ImageURL string `json:"image_url,omitempty"`
+
+	// Subscribers is the subscriber count as displayed (e.g. "10.4M").
+	Subscribers string `json:"subscribers,omitempty"`
+
+	// Photos is the number of photos in the channel archive.
+	Photos int `json:"photos"`
+
+	// Videos is the number of videos in the channel archive.
+	Videos int `json:"videos"`
+
+	// Links is the number of links in the channel archive.
+	Links int `json:"links"`
 }
 
 // Reader reads messages from a Telegram channel's public web archive.
@@ -87,7 +150,7 @@ func New(username string, opts ...Option) *Reader {
 		username: username,
 		baseURL:  "https://t.me",
 		timeout:  defaultTimeout,
-		client: newClient(defaultTimeout),
+		client:   newClient(defaultTimeout),
 	}
 
 	for _, opt := range opts {
@@ -237,6 +300,88 @@ func (r *Reader) Fetch(ctx context.Context, limit int) ([]Message, error) {
 	sliceReverse(messages)
 
 	return messages, nil
+}
+
+// FetchInfo retrieves metadata about the channel (title, description,
+// subscriber count, etc.) without fetching messages.
+func (r *Reader) FetchInfo(ctx context.Context) (*ChannelInfo, error) {
+	archiveURL := fmt.Sprintf("https://t.me/s/%s", r.username)
+
+	finalURL, err := r.resolveURL(ctx, archiveURL)
+	if err != nil {
+		return nil, fmt.Errorf("channel: resolve %s: %w", archiveURL, err)
+	}
+
+	doc, err := r.fetchPage(ctx, finalURL)
+	if err != nil {
+		return nil, fmt.Errorf("channel: fetch info: %w", err)
+	}
+
+	info := parseChannelInfo(doc)
+	return info, nil
+}
+
+// FetchWithInfo retrieves messages and channel metadata in a single request.
+func (r *Reader) FetchWithInfo(ctx context.Context, limit int) ([]Message, *ChannelInfo, error) {
+	archiveURL := fmt.Sprintf("https://t.me/s/%s", r.username)
+
+	finalURL, err := r.resolveURL(ctx, archiveURL)
+	if err != nil {
+		return nil, nil, fmt.Errorf("channel: resolve %s: %w", archiveURL, err)
+	}
+
+	var messages []Message
+	currentURL := finalURL
+	emptyPages := 0
+	var info *ChannelInfo
+
+	for emptyPages < 3 {
+		doc, err := r.fetchPage(ctx, currentURL)
+		if err != nil {
+			return nil, nil, fmt.Errorf("channel: fetch %s: %w", currentURL, err)
+		}
+
+		// Parse channel info from the first page
+		if info == nil {
+			info = parseChannelInfo(doc)
+		}
+
+		page, err := r.parseDoc(doc)
+		if err != nil {
+			return nil, nil, fmt.Errorf("channel: parse: %w", err)
+		}
+
+		if len(page) == 0 {
+			emptyPages++
+			if emptyPages >= 3 {
+				break
+			}
+			nextURL := findNextPage(doc, r.baseURL)
+			if nextURL == "" {
+				break
+			}
+			currentURL = nextURL
+			continue
+		}
+		emptyPages = 0
+
+		page = deduplicate(page, messages)
+		messages = append(messages, page...)
+
+		if limit > 0 && len(messages) >= limit {
+			messages = messages[:limit]
+			break
+		}
+
+		nextURL := findNextPage(doc, r.baseURL)
+		if nextURL == "" {
+			break
+		}
+		currentURL = nextURL
+	}
+
+	sliceReverse(messages)
+	return messages, info, nil
 }
 
 // deduplicate removes messages from page whose ID already appears in existing.

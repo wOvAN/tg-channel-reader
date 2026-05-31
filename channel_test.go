@@ -2,6 +2,7 @@ package pkg_test
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 
@@ -170,5 +171,107 @@ func TestFetch_NonexistentChannel(t *testing.T) {
 	_, err := reader.Fetch(context.Background(), 1)
 	if err == nil {
 		t.Fatal("expected error for nonexistent channel")
+	}
+}
+
+func TestFetch_NewFields(t *testing.T) {
+	reader := tg.New("durov")
+
+	msgs, err := reader.Fetch(context.Background(), 3)
+	if err != nil {
+		t.Fatalf("Fetch: %v", err)
+	}
+
+	for _, m := range msgs {
+		if m.MediaType == "" {
+			t.Errorf("message #%d has empty media_type", m.ID)
+		}
+		// ViewsCount should be parsed from Views string
+		if m.Views != "" && m.ViewsCount == 0 {
+			t.Errorf("message #%d has Views=%q but ViewsCount=0", m.ID, m.Views)
+		}
+	}
+}
+
+func TestFetch_Author(t *testing.T) {
+	reader := tg.New("durov")
+
+	msgs, err := reader.Fetch(context.Background(), 3)
+	if err != nil {
+		t.Fatalf("Fetch: %v", err)
+	}
+
+	// Durov channel has author on messages
+	for _, m := range msgs {
+		if m.Author == "" {
+			t.Logf("message #%d has no author (may be expected for some messages)", m.ID)
+		}
+	}
+}
+
+func TestFetch_URLs(t *testing.T) {
+	reader := tg.New("durov")
+
+	msgs, err := reader.Fetch(context.Background(), 5)
+	if err != nil {
+		t.Fatalf("Fetch: %v", err)
+	}
+
+	// At least some messages should have inline URLs
+	foundURLs := false
+	for _, m := range msgs {
+		if len(m.URLs) > 0 {
+			foundURLs = true
+			for _, u := range m.URLs {
+				if !strings.HasPrefix(u, "http") {
+					t.Errorf("message #%d has non-HTTP URL: %s", m.ID, u)
+				}
+			}
+		}
+	}
+	if !foundURLs {
+		t.Log("no inline URLs found in messages (may be expected)")
+	}
+}
+
+func TestFetchWithInfo(t *testing.T) {
+	reader := tg.New("durov")
+
+	msgs, info, err := reader.FetchWithInfo(context.Background(), 3)
+	if err != nil {
+		t.Fatalf("FetchWithInfo: %v", err)
+	}
+
+	if len(msgs) != 3 {
+		t.Fatalf("expected 3 messages, got %d", len(msgs))
+	}
+
+	if info == nil {
+		t.Fatal("expected non-nil ChannelInfo")
+	}
+	if info.Title == "" {
+		t.Error("expected non-empty channel title")
+	}
+	if info.Description == "" {
+		t.Error("expected non-empty channel description")
+	}
+}
+
+func TestFetchInfo(t *testing.T) {
+	reader := tg.New("durov")
+
+	info, err := reader.FetchInfo(context.Background())
+	if err != nil {
+		t.Fatalf("FetchInfo: %v", err)
+	}
+
+	if info == nil {
+		t.Fatal("expected non-nil ChannelInfo")
+	}
+	if info.Title == "" {
+		t.Error("expected non-empty channel title")
+	}
+	if info.ImageURL == "" {
+		t.Error("expected non-empty channel image URL")
 	}
 }
