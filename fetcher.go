@@ -22,7 +22,7 @@ func (r *Reader) fetchDoc(ctx context.Context, url string) (*goquery.Document, e
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("http %d", resp.StatusCode)

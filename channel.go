@@ -252,7 +252,7 @@ func (r *Reader) resolveURL(ctx context.Context, url string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode >= 300 && resp.StatusCode < 400 {
 		if location := resp.Header.Get("Location"); location != "" {
