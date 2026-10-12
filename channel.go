@@ -183,7 +183,7 @@ func WithHTTPClient(client *http.Client) Option {
 // When fetching large numbers of messages (e.g. 100+), consider increasing
 // the timeout to avoid premature cutoffs on slow connections:
 //
-//	reader := pkg.New("durov", pkg.WithTimeout(2*time.Minute))
+//	reader := tgchannelreader.New("durov", tgchannelreader.WithTimeout(2*time.Minute))
 func WithTimeout(timeout time.Duration) Option {
 	return func(r *Reader) {
 		r.timeout = timeout
@@ -239,68 +239,8 @@ func WithUntil(date time.Time) Option {
 // It follows pagination links automatically to collect enough messages.
 // A zero or negative limit means no upper bound (fetches all available).
 func (r *Reader) Fetch(ctx context.Context, limit int) ([]Message, error) {
-	archiveURL := r.baseURL + "/s/" + r.username
-
-	// Resolve final URL (handle redirects)
-	finalURL, err := r.resolveURL(ctx, archiveURL)
-	if err != nil {
-		return nil, fmt.Errorf("channel: resolve %s: %w", archiveURL, err)
-	}
-
-	var messages []Message
-	currentURL := finalURL
-	emptyPages := 0
-
-	for emptyPages < 3 {
-		doc, err := r.fetchPage(ctx, currentURL)
-		if err != nil {
-			return nil, fmt.Errorf("channel: fetch %s: %w", currentURL, err)
-		}
-
-		page, err := r.parseDoc(doc)
-		if err != nil {
-			return nil, fmt.Errorf("channel: parse: %w", err)
-		}
-
-		if len(page) == 0 {
-			emptyPages++
-			if emptyPages >= 3 {
-				break
-			}
-			// Try next page in case of a bad page
-			nextURL := findNextPage(doc, r.baseURL)
-			if nextURL == "" {
-				break
-			}
-			currentURL = nextURL
-			continue
-		}
-		emptyPages = 0
-
-		// Deduplicate: Telegram repeats the last message of the previous page
-		// at the top of the next page.
-		page = deduplicate(page, messages)
-
-		messages = append(messages, page...)
-
-		// Check limit
-		if limit > 0 && len(messages) >= limit {
-			messages = messages[:limit]
-			break
-		}
-
-		// Paginate
-		nextURL := findNextPage(doc, r.baseURL)
-		if nextURL == "" {
-			break
-		}
-		currentURL = nextURL
-	}
-
-	// Telegram returns oldest first; reverse to newest first.
-	slices.Reverse(messages)
-
-	return messages, nil
+	messages, _, err := r.FetchWithInfo(ctx, limit)
+	return messages, err
 }
 
 // FetchInfo retrieves metadata about the channel (title, description,
