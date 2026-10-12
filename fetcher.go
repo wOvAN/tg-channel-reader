@@ -1,4 +1,4 @@
-package pkg
+package tgchannelreader
 
 import (
 	"context"
@@ -10,14 +10,20 @@ import (
 
 const userAgent = "Mozilla/5.0 (compatible; ChannelReader/1.0)"
 
-func (r *Reader) fetchDoc(ctx context.Context, url string) (*goquery.Document, error) {
+// get issues a GET request with the library user agent.
+// The caller owns the response body and status handling.
+func (r *Reader) get(ctx context.Context, url string) (*http.Response, error) {
 	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
 	if err != nil {
 		return nil, err
 	}
 	req.Header.Set("User-Agent", userAgent)
 
-	resp, err := r.client.Do(req)
+	return r.client.Do(req)
+}
+
+func (r *Reader) fetchDoc(ctx context.Context, url string) (*goquery.Document, error) {
+	resp, err := r.get(ctx, url)
 	if err != nil {
 		return nil, err
 	}

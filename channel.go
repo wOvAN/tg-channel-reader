@@ -1,11 +1,11 @@
-// Package pkg reads messages from public Telegram channels
+// Package tgchannelreader reads messages from public Telegram channels
 // via the web archive at t.me/s/<username>.
 //
 // No API keys, authentication, or MTProto — just HTTP + HTML parsing.
 //
 // Example:
 //
-//	reader := pkg.New("durov")
+//	reader := tgchannelreader.New("durov")
 //	msgs, err := reader.Fetch(context.Background(), 10)
 //	if err != nil {
 //	    log.Fatal(err)
@@ -13,13 +13,14 @@
 //	for _, m := range msgs {
 //	    fmt.Printf("[%s] #%d %s\n", m.Date, m.ID, m.Text[:min(80, len(m.Text))])
 //	}
-package pkg
+package tgchannelreader
 
 import (
 	"context"
 	"fmt"
 	"net/http"
 	"net/url"
+	"slices"
 	"time"
 )
 
@@ -238,7 +239,7 @@ func WithUntil(date time.Time) Option {
 // It follows pagination links automatically to collect enough messages.
 // A zero or negative limit means no upper bound (fetches all available).
 func (r *Reader) Fetch(ctx context.Context, limit int) ([]Message, error) {
-	archiveURL := fmt.Sprintf("https://t.me/s/%s", r.username)
+	archiveURL := r.baseURL + "/s/" + r.username
 
 	// Resolve final URL (handle redirects)
 	finalURL, err := r.resolveURL(ctx, archiveURL)
@@ -297,7 +298,7 @@ func (r *Reader) Fetch(ctx context.Context, limit int) ([]Message, error) {
 	}
 
 	// Telegram returns oldest first; reverse to newest first.
-	sliceReverse(messages)
+	slices.Reverse(messages)
 
 	return messages, nil
 }
@@ -305,7 +306,7 @@ func (r *Reader) Fetch(ctx context.Context, limit int) ([]Message, error) {
 // FetchInfo retrieves metadata about the channel (title, description,
 // subscriber count, etc.) without fetching messages.
 func (r *Reader) FetchInfo(ctx context.Context) (*ChannelInfo, error) {
-	archiveURL := fmt.Sprintf("https://t.me/s/%s", r.username)
+	archiveURL := r.baseURL + "/s/" + r.username
 
 	finalURL, err := r.resolveURL(ctx, archiveURL)
 	if err != nil {
@@ -323,7 +324,7 @@ func (r *Reader) FetchInfo(ctx context.Context) (*ChannelInfo, error) {
 
 // FetchWithInfo retrieves messages and channel metadata in a single request.
 func (r *Reader) FetchWithInfo(ctx context.Context, limit int) ([]Message, *ChannelInfo, error) {
-	archiveURL := fmt.Sprintf("https://t.me/s/%s", r.username)
+	archiveURL := r.baseURL + "/s/" + r.username
 
 	finalURL, err := r.resolveURL(ctx, archiveURL)
 	if err != nil {
@@ -380,7 +381,7 @@ func (r *Reader) FetchWithInfo(ctx context.Context, limit int) ([]Message, *Chan
 		currentURL = nextURL
 	}
 
-	sliceReverse(messages)
+	slices.Reverse(messages)
 	return messages, info, nil
 }
 
@@ -402,21 +403,8 @@ func deduplicate(page []Message, existing []Message) []Message {
 	return deduped
 }
 
-// sliceReverse reverses a slice in place.
-func sliceReverse(s []Message) {
-	for i, j := 0, len(s)-1; i < j; i, j = i+1, j-1 {
-		s[i], s[j] = s[j], s[i]
-	}
-}
-
 func (r *Reader) resolveURL(ctx context.Context, url string) (string, error) {
-	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
-	if err != nil {
-		return "", err
-	}
-	req.Header.Set("User-Agent", userAgent)
-
-	resp, err := r.client.Do(req)
+	resp, err := r.get(ctx, url)
 	if err != nil {
 		return "", err
 	}

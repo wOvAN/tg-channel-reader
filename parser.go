@@ -1,4 +1,4 @@
-package pkg
+package tgchannelreader
 
 import (
 	"fmt"
@@ -141,7 +141,7 @@ func parseDateTime(msgDiv *goquery.Selection) time.Time {
 		}
 		parsed, err := time.Parse(time.RFC3339, dt)
 		if err != nil {
-			parsed, _ = time.Parse("2006-01-02T15:04:05Z07:00", dt)
+			return
 		}
 		t = parsed
 	})
